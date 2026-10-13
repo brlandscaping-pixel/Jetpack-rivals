@@ -6,11 +6,11 @@ const send=(ws,obj)=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(o
 const broadcast=(r,obj)=>r.players.forEach(p=>send(p.ws,obj));
 const code=()=>{let c;do{c=Math.random().toString(36).slice(2,7).toUpperCase()}while(rooms.has(c));return c};
 const obstacles=Array.from({length:29},(_,i)=>({x:430+i*210,gap:110+Math.floor(Math.random()*260),height:165}));
-function snapshot(r){return {type:'state',room:r.code,status:r.status,host:r.host,players:r.players.map(p=>({id:p.id,name:p.name,x:p.x,y:p.y,rank:p.rank,item:p.item,stun:p.stun,slow:p.slow,finished:p.finished,stuck:p.stuck,color:p.color})),obstacles:r.obstacles,fireballs:r.fireballs||[],finish:LENGTH,winner:r.winner,elapsed:r.elapsed}}
+function snapshot(r){return {type:'state',room:r.code,status:r.status,host:r.host,players:r.players.map(p=>({id:p.id,name:p.name,x:p.x,y:p.y,rank:p.rank,item:p.item,stun:p.stun,slow:p.slow,finished:p.finished,stuck:false,color:p.color})),obstacles:r.obstacles,fireballs:r.fireballs||[],finish:LENGTH,winner:r.winner,elapsed:r.elapsed}}
 function leave(ws){const r=ws.room;if(!r)return;r.players=r.players.filter(p=>p.ws!==ws);ws.room=null;if(!r.players.length)rooms.delete(r.code);else{if(r.host===ws.pid)r.host=r.players[0].id;broadcast(r,snapshot(r))}}
-function reset(r){r.status='racing';r.winner=null;r.elapsed=0;r.obstacles=obstacles.map(o=>({...o,gap:90+Math.floor(Math.random()*300)}));r.fireballs=[];r.fireTimer=1.5;r.players.forEach((p,i)=>Object.assign(p,{x:0,y:190+i*38,vy:0,up:false,rank:i+1,item:null,stun:0,slow:0,finished:false,invuln:0,boxIndex:-1,stuck:false,fireGrace:1.5}));}
+function reset(r){r.status='racing';r.winner=null;r.elapsed=0;r.obstacles=obstacles.map(o=>({...o,gap:90+Math.floor(Math.random()*300)}));r.fireballs=[];r.fireTimer=1.5;r.players.forEach((p,i)=>Object.assign(p,{x:0,y:190+i*38,vy:0,up:false,rank:i+1,item:null,stun:0,slow:0,finished:false,invuln:0,boxIndex:-1,stuck:false,wallCooldown:0,fireGrace:1.5}));}
 function itemUse(r,p){if(!p.item||r.status!=='racing')return;let target;if(p.item==='monkey')target=r.players.filter(q=>q!==p&&!q.finished&&q.x<p.x).sort((a,b)=>b.x-a.x)[0];else target=r.players.filter(q=>q!==p&&!q.finished).sort((a,b)=>Math.abs(a.x-p.x)-Math.abs(b.x-p.x))[0];if(target){if(p.item==='banana')target.stun=2.2;if(p.item==='knife')target.slow=3;if(p.item==='monkey')target.slow=4;broadcast(r,{type:'attack',from:p.name,to:target.name,item:p.item})}p.item=null}
-wss.on('connection',ws=>{ws.pid=uid++;ws.on('message',raw=>{let m;try{m=JSON.parse(raw)}catch{return}if(!m||typeof m!=='object')return;if(m.type==='create'||m.type==='join'){leave(ws);const c=m.type==='create'?code():String(m.room||'').toUpperCase().trim();let r=rooms.get(c);if(m.type==='create'){r={code:c,players:[],host:ws.pid,status:'lobby',obstacles:[],winner:null,elapsed:0,fireballs:[],fireTimer:1.5};rooms.set(c,r)}if(!r)return send(ws,{type:'error',message:'Room not found'});if(r.status!=='lobby')return send(ws,{type:'error',message:'Race already started'});if(r.players.length>=MAX)return send(ws,{type:'error',message:'Room is full'});ws.room=r;const p={id:ws.pid,ws,name:String(m.name||'Racer').replace(/[<>]/g,'').slice(0,16),color:['#46dfff','#ffcc4d','#ff6b9b','#9aff7a'][r.players.length],x:0,y:220,vy:0,up:false,rank:r.players.length+1,item:null,stun:0,slow:0,finished:false,stuck:false,fireGrace:1.5};r.players.push(p);send(ws,{type:'welcome',id:ws.pid,room:c});broadcast(r,snapshot(r));return}const r=ws.room;if(!r)return;const p=r.players.find(q=>q.ws===ws);if(!p)return;if(m.type==='start'&&r.host===p.id&&r.status==='lobby'){reset(r);broadcast(r,snapshot(r))}if(m.type==='input')p.up=!!m.up;if(m.type==='use')itemUse(r,p);if(m.type==='restart'&&r.host===p.id&&r.status!=='lobby'){reset(r);broadcast(r,snapshot(r))}if(m.type==='lobby'&&r.host===p.id){r.status='lobby';r.winner=null;r.players.forEach(q=>{q.up=false;q.item=null;q.stun=0;q.slow=0;q.stuck=false});r.fireballs=[];broadcast(r,snapshot(r))}if(m.type==='leave'){leave(ws);send(ws,{type:'left'})}});ws.on('close',()=>leave(ws))});
+wss.on('connection',ws=>{ws.pid=uid++;ws.on('message',raw=>{let m;try{m=JSON.parse(raw)}catch{return}if(!m||typeof m!=='object')return;if(m.type==='create'||m.type==='join'){leave(ws);const c=m.type==='create'?code():String(m.room||'').toUpperCase().trim();let r=rooms.get(c);if(m.type==='create'){r={code:c,players:[],host:ws.pid,status:'lobby',obstacles:[],winner:null,elapsed:0,fireballs:[],fireTimer:1.5};rooms.set(c,r)}if(!r)return send(ws,{type:'error',message:'Room not found'});if(r.status!=='lobby')return send(ws,{type:'error',message:'Race already started'});if(r.players.length>=MAX)return send(ws,{type:'error',message:'Room is full'});ws.room=r;const p={id:ws.pid,ws,name:String(m.name||'Racer').replace(/[<>]/g,'').slice(0,16),color:['#46dfff','#ffcc4d','#ff6b9b','#9aff7a'][r.players.length],x:0,y:220,vy:0,up:false,rank:r.players.length+1,item:null,stun:0,slow:0,finished:false,stuck:false,wallCooldown:0,fireGrace:1.5};r.players.push(p);send(ws,{type:'welcome',id:ws.pid,room:c});broadcast(r,snapshot(r));return}const r=ws.room;if(!r)return;const p=r.players.find(q=>q.ws===ws);if(!p)return;if(m.type==='start'&&r.host===p.id&&r.status==='lobby'){reset(r);broadcast(r,snapshot(r))}if(m.type==='input')p.up=!!m.up;if(m.type==='use')itemUse(r,p);if(m.type==='restart'&&r.host===p.id&&r.status!=='lobby'){reset(r);broadcast(r,snapshot(r))}if(m.type==='lobby'&&r.host===p.id){r.status='lobby';r.winner=null;r.players.forEach(q=>{q.up=false;q.item=null;q.stun=0;q.slow=0;q.stuck=false});r.fireballs=[];broadcast(r,snapshot(r))}if(m.type==='leave'){leave(ws);send(ws,{type:'left'})}});ws.on('close',()=>leave(ws))});
 let previous=Date.now();setInterval(()=>{const now=Date.now(),dt=Math.min((now-previous)/1000,.06);previous=now;for(const r of rooms.values()){if(r.status!=='racing')continue;r.elapsed+=dt;
 r.fireTimer-=dt;
 if(r.fireTimer<=0){
@@ -25,21 +25,33 @@ r.fireballs.forEach(f=>f.x+=f.vx*dt);
 const minX=Math.min(...r.players.map(p=>p.x));
 r.fireballs=r.fireballs.filter(f=>f.x>minX-400);
 for(const p of r.players){if(p.finished)continue;p.stun=Math.max(0,p.stun-dt);p.slow=Math.max(0,p.slow-dt);p.invuln=Math.max(0,(p.invuln||0)-dt);p.fireGrace=Math.max(0,(p.fireGrace||0)-dt);
-if(!p.stuck){
-  p.vy+=((p.up&&p.stun===0)?-760:500)*dt;
-  p.vy=Math.max(-250,Math.min(290,p.vy));
-  const nextY=Math.max(18,Math.min(470,p.y+p.vy*dt));
-  const nextX=p.x+(p.slow>0?SPEED*.52:SPEED)*dt;
-  // Solid walls: touching a pipe stops all movement until race restart.
-  const hit=r.obstacles.some(o=>nextX+17>o.x-22&&nextX-17<o.x+22 &&
-      (nextY-15<o.gap || nextY+15>o.gap+o.height));
-  if(hit){p.stuck=true;p.vy=0;p.up=false;send(p.ws,{type:'stuck'});}
-  else {p.x=nextX;p.y=nextY;if(p.y===18||p.y===470)p.vy=0;}
+p.wallCooldown=Math.max(0,(p.wallCooldown||0)-dt);
+p.vy+=((p.up&&p.stun===0)?-760:500)*dt;
+p.vy=Math.max(-250,Math.min(290,p.vy));
+const nextY=Math.max(18,Math.min(470,p.y+p.vy*dt));
+const nextX=p.x+(p.slow>0?SPEED*.52:SPEED)*dt;
+// Solid obstacle: bounce backward instead of trapping the racer.
+const hit=r.obstacles.find(o=>nextX+17>o.x-22&&nextX-17<o.x+22 &&
+    (nextY-15<o.gap || nextY+15>o.gap+o.height));
+if(hit && p.wallCooldown===0){
+  p.x=Math.max(0,Math.min(p.x-85,hit.x-22-17-8));
+  p.y=nextY;
+  p.vy=0;
+  p.wallCooldown=.65;
+  send(p.ws,{type:'wallHit'});
+}else if(!hit){
+  p.x=nextX;
+  p.y=nextY;
+  if(p.y===18||p.y===470)p.vy=0;
+}else{
+  // During the short bounce recovery, don't allow travel through the wall.
+  p.y=nextY;
+  p.vy=0;
 }
 if(p.fireGrace===0&&r.fireballs.some(f=>Math.hypot(p.x-f.x,p.y-f.y)<f.r+15)){
-  p.x=0;p.y=220;p.vy=0;p.up=false;p.stuck=false;p.item=null;
+  p.x=0;p.y=220;p.vy=0;p.up=false;p.stuck=false;p.wallCooldown=0;p.item=null;
   p.stun=0;p.slow=0;p.invuln=0;p.fireGrace=2.5;p.boxIndex=-1;
   send(p.ws,{type:'fireHit'});
 }
-const box=Math.floor((p.x-260)/630);if(!p.stuck&&box>=0&&box!==p.boxIndex&&Math.abs(p.x-(260+box*630))<18&&Math.abs(p.y-245)<95){p.boxIndex=box;if(!p.item)p.item=['banana','knife','monkey'][Math.floor(Math.random()*3)]}if(p.x>=LENGTH){p.x=LENGTH;p.finished=true;if(!r.winner){r.winner=p.name;r.status='done';broadcast(r,{type:'winner',name:p.name})}}}r.players.sort((a,b)=>b.x-a.x).forEach((p,i)=>p.rank=i+1);broadcast(r,snapshot(r))}},50);
+const box=Math.floor((p.x-260)/630);if(box>=0&&box!==p.boxIndex&&Math.abs(p.x-(260+box*630))<18&&Math.abs(p.y-245)<95){p.boxIndex=box;if(!p.item)p.item=['banana','knife','monkey'][Math.floor(Math.random()*3)]}if(p.x>=LENGTH){p.x=LENGTH;p.finished=true;if(!r.winner){r.winner=p.name;r.status='done';broadcast(r,{type:'winner',name:p.name})}}}r.players.sort((a,b)=>b.x-a.x).forEach((p,i)=>p.rank=i+1);broadcast(r,snapshot(r))}},50);
 server.listen(PORT,()=>console.log('Jetpack Rivals listening on '+PORT));
